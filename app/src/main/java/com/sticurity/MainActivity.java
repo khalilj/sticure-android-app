@@ -6,17 +6,27 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
+import android.os.AsyncTask;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Date;
 import java.util.Set;
 import java.util.UUID;
+
+import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends AppCompatActivity {
     private static final String EOM = "#!#";
@@ -31,7 +41,6 @@ public class MainActivity extends AppCompatActivity {
     BluetoothDevice bluetoothDevice = null;
     private BluetoothSocket btSocket = null;
     private ConnectedThread mConnectedThread;
-    private char DELIMITER = '#';
 
     // SPP UUID service - this should work for most devices
     private static final UUID BTMODULEUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
@@ -41,47 +50,85 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        SecurityEvent event = new SecurityEvent();
+        event.setId(1000 + (int)(Math.random() * ((Integer.MAX_VALUE - 1000) + 1)));
+        event.setLat(100);
+        event.setLon(100);
+        event.setTime(new Date());
+        event.setTitle("Crash at Naz");
+        event.setType("Crash");
+        saveEvent(event);
 
-        if (bluetoothAdapter == null) {
-            Toast.makeText(getApplicationContext(), "Device doesnt Support Bluetooth", Toast.LENGTH_LONG).show();
-            return;
-        }
+//        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+//        if (bluetoothAdapter == null) {
+//            Toast.makeText(getApplicationContext(), "Device doesnt Support Bluetooth", Toast.LENGTH_LONG).show();
+//            return;
+//        }
+//
+//        if (!bluetoothAdapter.isEnabled()) {
+//            Intent enableAdapter = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+//            startActivityForResult(enableAdapter, 0);
+//        }
+//
+//        Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
+//
+//
+//        if (bondedDevices.isEmpty()) {
+//            Toast.makeText(getApplicationContext(), "Please Pair the Device first", Toast.LENGTH_LONG).show();
+//        } else {
+//            for (BluetoothDevice aDevice : bondedDevices) {
+//                if (aDevice.getName().startsWith(blueToothDeviceName)) //Replace with iterator.getName() if comparing Device names.
+//                {
+//                    Toast.makeText(getApplicationContext(), aDevice.getName(), Toast.LENGTH_LONG).show();
+//                    bluetoothDevice = aDevice;
+//                    break;
+//                }
+//            }
+//        }
+//
+//        if (bluetoothDevice == null) {
+//            Toast.makeText(getApplicationContext(), "Couldn't find device: " + blueToothDeviceName, Toast.LENGTH_LONG).show();
+//            return;
+//        }
+//
+//        bluetoothIn = new Handler() {
+//            public void handleMessage(android.os.Message msg) {
+//                if (msg.what == handlerState) {
+//                    String readMessage = (String) msg.obj;
+//                    Toast.makeText(getApplicationContext(), "Message: " + readMessage, Toast.LENGTH_LONG).show();
+//                    saveEvent(readMessage);
+//                }
+//            }
+//        };
+    }
 
-        if (!bluetoothAdapter.isEnabled()) {
-            Intent enableAdapter = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableAdapter, 0);
-        }
+    private void saveEvent(SecurityEvent event) {
+        new HttpRequestTask().execute(event);
+    }
 
-        Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
-
-
-        if (bondedDevices.isEmpty()) {
-            Toast.makeText(getApplicationContext(), "Please Pair the Device first", Toast.LENGTH_LONG).show();
-        } else {
-            for (BluetoothDevice aDevice : bondedDevices) {
-                if (aDevice.getName().startsWith(blueToothDeviceName)) //Replace with iterator.getName() if comparing Device names.
-                {
-                    Toast.makeText(getApplicationContext(), aDevice.getName(), Toast.LENGTH_LONG).show();
-                    bluetoothDevice = aDevice;
-                    break;
-                }
+    private class HttpRequestTask extends AsyncTask<SecurityEvent, Void, String> {
+        @Override
+        protected String doInBackground(SecurityEvent... events) {
+            try{
+                final String url = "http://10.20.2.56:8080/reportEvent";
+                RestTemplate restTemplate = new RestTemplate();
+                restTemplate.getMessageConverters().add(new MappingJackson2HttpMessageConverter());
+                restTemplate.postForEntity(url, events[0], SecurityEvent.class);
             }
-        }
-
-        if (bluetoothDevice == null) {
-            Toast.makeText(getApplicationContext(), "Couldn't find device: " + blueToothDeviceName, Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        bluetoothIn = new Handler() {
-            public void handleMessage(android.os.Message msg) {
-                if (msg.what == handlerState) {
-                    String readMessage = (String) msg.obj;
-                    Toast.makeText(getApplicationContext(), "Message: " + readMessage, Toast.LENGTH_LONG).show();
-                }
+            catch(Throwable t){
+                t.printStackTrace();
             }
-        };
+
+            return "";
+        }
+
+//        @Override
+//        protected void onPostExecute(Greeting greeting) {
+//            TextView greetingIdText = (TextView) findViewById(R.id.id_value);
+//            TextView greetingContentText = (TextView) findViewById(R.id.content_value);
+//            greetingIdText.setText(greeting.getId());
+//            greetingContentText.setText(greeting.getContent());
+//        }
     }
 
     private BluetoothSocket createBluetoothSocket(BluetoothDevice device) throws IOException {
@@ -94,69 +141,68 @@ public class MainActivity extends AppCompatActivity {
     public void onResume() {
         super.onResume();
 
-        try {
-            btSocket = createBluetoothSocket(bluetoothDevice);
-        } catch (IOException e) {
-            Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
-        }
-        // Establish the Bluetooth socket connection.
-        try
-        {
-            btSocket.connect();
-        } catch (IOException e) {
-            try
-            {
-                btSocket.close();
-            } catch (IOException e2)
-            {
-                //insert code to deal with this
-            }
-        }
-
-        mConnectedThread = new ConnectedThread(btSocket);
-        mConnectedThread.start();
-
-        //I send a character when resuming.beginning transmission to check device is connected
-        //If it is not an exception will be thrown in the write method and finish() will be called
-        mConnectedThread.write("x");
+//        try {
+//            btSocket = createBluetoothSocket(bluetoothDevice);
+//        } catch (IOException e) {
+//            Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
+//        }
+//        // Establish the Bluetooth socket connection.
+//        try
+//        {
+//            btSocket.connect();
+//        } catch (IOException e) {
+//            try
+//            {
+//                btSocket.close();
+//            } catch (IOException e2)
+//            {
+//                //insert code to deal with this
+//            }
+//        }
+//
+//        mConnectedThread = new ConnectedThread(btSocket);
+//        mConnectedThread.start();
+//
+//        //I send a character when resuming.beginning transmission to check device is connected
+//        //If it is not an exception will be thrown in the write method and finish() will be called
+//        mConnectedThread.write("x");
     }
 
     @Override
     public void onPause()
     {
         super.onPause();
-        try
-        {
-            //Don't leave Bluetooth sockets open when leaving activity
-            btSocket.close();
-        } catch (IOException e2) {
-            //insert code to deal with this
-        }
+//        try
+//        {
+//            //Don't leave Bluetooth sockets open when leaving activity
+//            btSocket.close();
+//        } catch (IOException e2) {
+//            //insert code to deal with this
+//        }
     }
 
     //create new class for connect thread
     private class ConnectedThread extends Thread {
-        private final InputStream mmInStream;
+        private final DataInputStream mmInStream;
         private final OutputStream mmOutStream;
-        InputStream tmpIn = null;
-        OutputStream tmpOut = null;
 
         //creation of the connect thread
         public ConnectedThread(BluetoothSocket socket) {
-
+            InputStream tmpIn = null;
+            OutputStream tmpOut = null;
 
             try {
                 //Create I/O streams for connection
                 tmpIn = socket.getInputStream();
                 tmpOut = socket.getOutputStream();
             } catch (IOException e) { }
-
-            mmInStream = tmpIn;
+            mmInStream = new DataInputStream(tmpIn);
+            //mmInStream = tmpIn;//
             mmOutStream = tmpOut;
         }
 
         public void run() {
-            /*
+
             byte[] buffer = new byte[256];
             int bytes;
             final byte delimiter = 10; //This is the ASCII code for a newline character
@@ -168,29 +214,6 @@ public class MainActivity extends AppCompatActivity {
 
             while (true) {
                 try {
-//                    int bytesAvailable = mmInStream.available();
-//                    if(bytesAvailable > 0) {
-//                        byte[] packetBytes = new byte[bytesAvailable];
-//                        mmInStream.read(packetBytes);
-//                        for(int i=0;i<bytesAvailable;i++)
-//                        {
-//                            byte b = packetBytes[i];
-//                            if(b == delimiter)
-//                            {
-//                                byte[] encodedBytes = new byte[readBufferPosition];
-//                                System.arraycopy(readBuffer, 0, encodedBytes, 0, encodedBytes.length);
-//                                final String data = new String(encodedBytes, "US-ASCII");
-//                                readBufferPosition = 0;
-//                            }
-//                            else
-//                            {
-//                                readBuffer[readBufferPosition++] = b;
-//                            }
-//                        }
-//                    }
-
-
-
                     bytes = mmInStream.read(buffer);
                     String readMessage = new String(buffer, 0, bytes);
                     System.out.println(readMessage);
@@ -211,28 +234,6 @@ public class MainActivity extends AppCompatActivity {
                     e.printStackTrace();
                     break;
                 }
-            }*/
-            while (true) {
-                    try {
-                        byte ch, buffer[] = new byte[1024];
-                        int i = 0;
-
-                        String s = "";
-                        while((ch=(byte)tmpIn.read()) != DELIMITER){
-                            buffer[i++] = ch;
-                        }
-                        buffer[i] = '\0';
-
-                        final String msg = new String(buffer);
-
-                        System.out.print(msg);
-                        //MessageReceived(msg.trim());
-                        //LogMessage("[Blue]:" + msg);
-
-                    } catch (IOException e) {
-                        //LogError("->[#]Failed to receive message: " + e.getMessage());
-                    }
-
             }
         }
         //write method
