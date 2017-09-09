@@ -50,60 +50,59 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        SecurityEvent event = new SecurityEvent();
-        event.setId(1000 + (int)(Math.random() * ((Integer.MAX_VALUE - 1000) + 1)));
-        event.setLat(100);
-        event.setLon(100);
-        event.setTime(new Date());
-        event.setTitle("Crash at Naz");
-        event.setType("Crash");
-        saveEvent(event);
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (bluetoothAdapter == null) {
+            Toast.makeText(getApplicationContext(), "Device doesnt Support Bluetooth", Toast.LENGTH_LONG).show();
+            return;
+        }
 
-//        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-//        if (bluetoothAdapter == null) {
-//            Toast.makeText(getApplicationContext(), "Device doesnt Support Bluetooth", Toast.LENGTH_LONG).show();
-//            return;
-//        }
-//
-//        if (!bluetoothAdapter.isEnabled()) {
-//            Intent enableAdapter = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-//            startActivityForResult(enableAdapter, 0);
-//        }
-//
-//        Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
-//
-//
-//        if (bondedDevices.isEmpty()) {
-//            Toast.makeText(getApplicationContext(), "Please Pair the Device first", Toast.LENGTH_LONG).show();
-//        } else {
-//            for (BluetoothDevice aDevice : bondedDevices) {
-//                if (aDevice.getName().startsWith(blueToothDeviceName)) //Replace with iterator.getName() if comparing Device names.
-//                {
-//                    Toast.makeText(getApplicationContext(), aDevice.getName(), Toast.LENGTH_LONG).show();
-//                    bluetoothDevice = aDevice;
-//                    break;
-//                }
-//            }
-//        }
-//
-//        if (bluetoothDevice == null) {
-//            Toast.makeText(getApplicationContext(), "Couldn't find device: " + blueToothDeviceName, Toast.LENGTH_LONG).show();
-//            return;
-//        }
-//
-//        bluetoothIn = new Handler() {
-//            public void handleMessage(android.os.Message msg) {
-//                if (msg.what == handlerState) {
-//                    String readMessage = (String) msg.obj;
-//                    Toast.makeText(getApplicationContext(), "Message: " + readMessage, Toast.LENGTH_LONG).show();
-//                    saveEvent(readMessage);
-//                }
-//            }
-//        };
+        if (!bluetoothAdapter.isEnabled()) {
+            Intent enableAdapter = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableAdapter, 0);
+        }
+
+        Set<BluetoothDevice> bondedDevices = bluetoothAdapter.getBondedDevices();
+
+
+        if (bondedDevices.isEmpty()) {
+            Toast.makeText(getApplicationContext(), "Please Pair the Device first", Toast.LENGTH_LONG).show();
+        } else {
+            for (BluetoothDevice aDevice : bondedDevices) {
+                if (aDevice.getName().startsWith(blueToothDeviceName)) //Replace with iterator.getName() if comparing Device names.
+                {
+                    Toast.makeText(getApplicationContext(), aDevice.getName(), Toast.LENGTH_LONG).show();
+                    bluetoothDevice = aDevice;
+                    break;
+                }
+            }
+        }
+
+        if (bluetoothDevice == null) {
+            Toast.makeText(getApplicationContext(), "Couldn't find device: " + blueToothDeviceName, Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        bluetoothIn = new Handler() {
+            public void handleMessage(android.os.Message msg) {
+                if (msg.what == handlerState) {
+                    String readMessage = (String) msg.obj;
+                    Toast.makeText(getApplicationContext(), "Message: " + readMessage, Toast.LENGTH_LONG).show();
+
+                    SecurityEvent event = new SecurityEvent();
+                    event.setId(getRandomId());
+                    event.setLat(100);
+                    event.setLon(100);
+                    event.setTime(new Date());
+                    event.setTitle("Crash at Naz");
+                    event.setType("Crash");
+                    new HttpRequestTask().execute(event);
+                }
+            }
+        };
     }
 
-    private void saveEvent(SecurityEvent event) {
-        new HttpRequestTask().execute(event);
+    private int getRandomId() {
+        return 1000 + (int) (Math.random() * ((Integer.MAX_VALUE - 1000) + 1));
     }
 
     private class HttpRequestTask extends AsyncTask<SecurityEvent, Void, String> {
@@ -141,44 +140,40 @@ public class MainActivity extends AppCompatActivity {
     public void onResume() {
         super.onResume();
 
-//        try {
-//            btSocket = createBluetoothSocket(bluetoothDevice);
-//        } catch (IOException e) {
-//            Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
-//        }
-//        // Establish the Bluetooth socket connection.
-//        try
-//        {
-//            btSocket.connect();
-//        } catch (IOException e) {
-//            try
-//            {
-//                btSocket.close();
-//            } catch (IOException e2)
-//            {
-//                //insert code to deal with this
-//            }
-//        }
-//
-//        mConnectedThread = new ConnectedThread(btSocket);
-//        mConnectedThread.start();
-//
-//        //I send a character when resuming.beginning transmission to check device is connected
-//        //If it is not an exception will be thrown in the write method and finish() will be called
-//        mConnectedThread.write("x");
+        try {
+            btSocket = createBluetoothSocket(bluetoothDevice);
+            btSocket.connect();
+        } catch (IOException e) {
+            Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
+        } finally {
+            if (btSocket != null) {
+                try {
+                    btSocket.close();
+                } catch (IOException e2) {
+                    //insert code to deal with this
+                }
+            }
+        }
+
+        mConnectedThread = new ConnectedThread(btSocket);
+        mConnectedThread.start();
+
+        //I send a character when resuming.beginning transmission to check device is connected
+        //If it is not an exception will be thrown in the write method and finish() will be called
+        mConnectedThread.write("x");
     }
 
     @Override
     public void onPause()
     {
         super.onPause();
-//        try
-//        {
-//            //Don't leave Bluetooth sockets open when leaving activity
-//            btSocket.close();
-//        } catch (IOException e2) {
-//            //insert code to deal with this
-//        }
+        try
+        {
+            //Don't leave Bluetooth sockets open when leaving activity
+            btSocket.close();
+        } catch (IOException e2) {
+            //insert code to deal with this
+        }
     }
 
     //create new class for connect thread
@@ -202,7 +197,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         public void run() {
-
             byte[] buffer = new byte[256];
             int bytes;
             final byte delimiter = 10; //This is the ASCII code for a newline character
@@ -227,15 +221,13 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     message.append(readMessage);
-
-
-
                 } catch (IOException e) {
                     e.printStackTrace();
                     break;
                 }
             }
         }
+
         //write method
         public void write(String input) {
             byte[] msgBuffer = input.getBytes();           //converts entered String into bytes
