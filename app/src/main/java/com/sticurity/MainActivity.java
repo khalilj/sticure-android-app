@@ -3,14 +3,12 @@ package com.sticurity;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.widget.Toast;
 
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -20,26 +18,24 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import javax.net.ssl.HttpsURLConnection;
-
 public class MainActivity extends AppCompatActivity {
     private static final String EOM = "#!#";
+    final String serverUrl = "http://10.20.2.46:8080/reportEvent";
     // SPP UUID service
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
 
     BluetoothAdapter bluetoothAdapter = null;
-    Handler bluetoothIn;
+    Handler messageHandler;
     final int handlerState = 0;
     String blueToothDeviceName = "HC-05";
     BluetoothDevice bluetoothDevice = null;
-    private BluetoothSocket btSocket = null;
     private ConnectedThread mConnectedThread;
 
     // SPP UUID service - this should work for most devices
@@ -82,23 +78,9 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        bluetoothIn = new Handler() {
-            public void handleMessage(android.os.Message msg) {
-                if (msg.what == handlerState) {
-                    String readMessage = (String) msg.obj;
-                    Toast.makeText(getApplicationContext(), "Message: " + readMessage, Toast.LENGTH_LONG).show();
+        mConnectedThread = new ConnectedThread();
+        mConnectedThread.start();
 
-                    SecurityEvent event = new SecurityEvent();
-                    event.setId(getRandomId());
-                    event.setLat(100);
-                    event.setLon(100);
-                    event.setTime(new Date());
-                    event.setTitle("Crash at Naz");
-                    event.setType("Crash");
-                    new HttpRequestTask().execute(event);
-                }
-            }
-        };
     }
 
     private int getRandomId() {
@@ -109,10 +91,9 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected String doInBackground(SecurityEvent... events) {
             try{
-                final String url = "http://10.20.2.56:8080/reportEvent";
                 RestTemplate restTemplate = new RestTemplate();
                 restTemplate.getMessageConverters().add(new MappingJackson2HttpMessageConverter());
-                restTemplate.postForEntity(url, events[0], SecurityEvent.class);
+                restTemplate.postForEntity(serverUrl, events[0], SecurityEvent.class);
             }
             catch(Throwable t){
                 t.printStackTrace();
@@ -132,68 +113,35 @@ public class MainActivity extends AppCompatActivity {
 
     private BluetoothSocket createBluetoothSocket(BluetoothDevice device) throws IOException {
 
-        return  device.createRfcommSocketToServiceRecord(BTMODULEUUID);
+        return device.createRfcommSocketToServiceRecord(BTMODULEUUID);
         //creates secure outgoing connecetion with BT device using UUID
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-
-        try {
-            btSocket = createBluetoothSocket(bluetoothDevice);
-            btSocket.connect();
-        } catch (IOException e) {
-            Toast.makeText(getBaseContext(), "Socket creation failed", Toast.LENGTH_LONG).show();
-        } finally {
-            if (btSocket != null) {
-                try {
-                    btSocket.close();
-                } catch (IOException e2) {
-                    //insert code to deal with this
-                }
-            }
-        }
-
-        mConnectedThread = new ConnectedThread(btSocket);
-        mConnectedThread.start();
-
-        //I send a character when resuming.beginning transmission to check device is connected
-        //If it is not an exception will be thrown in the write method and finish() will be called
-        mConnectedThread.write("x");
-    }
-
-    @Override
-    public void onPause()
-    {
-        super.onPause();
-        try
-        {
-            //Don't leave Bluetooth sockets open when leaving activity
-            btSocket.close();
-        } catch (IOException e2) {
-            //insert code to deal with this
-        }
     }
 
     //create new class for connect thread
     private class ConnectedThread extends Thread {
-        private final DataInputStream mmInStream;
-        private final OutputStream mmOutStream;
+        BluetoothSocket btSocket = null;
+        InputStream tmpIn = null;
+        OutputStream tmpOut = null;
+        DataInputStream mmInStream;
+        OutputStream mmOutStream;
 
         //creation of the connect thread
-        public ConnectedThread(BluetoothSocket socket) {
-            InputStream tmpIn = null;
-            OutputStream tmpOut = null;
+        public ConnectedThread() {
+            init();
+        }
+
+        private void init() {
 
             try {
-                //Create I/O streams for connection
-                tmpIn = socket.getInputStream();
-                tmpOut = socket.getOutputStream();
-            } catch (IOException e) { }
+                btSocket = createBluetoothSocket(bluetoothDevice);
+                btSocket.connect();
+                tmpIn = btSocket.getInputStream();
+                tmpOut = btSocket.getOutputStream();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
             mmInStream = new DataInputStream(tmpIn);
-            //mmInStream = tmpIn;//
-            mmOutStream = tmpOut;
         }
 
         public void run() {
@@ -211,33 +159,84 @@ public class MainActivity extends AppCompatActivity {
                     bytes = mmInStream.read(buffer);
                     String readMessage = new String(buffer, 0, bytes);
                     System.out.println(readMessage);
-                    int eomIndex = readMessage.indexOf(EOM);
-                    if (eomIndex != -1){
-                        message.append(readMessage.substring(0, eomIndex));
-                        // Send the obtained bytes to the UI Activity via handler
-                        bluetoothIn.obtainMessage(handlerState, bytes, -1, message.toString()).sendToTarget();
-                        message = new StringBuilder();
-                        readMessage = readMessage.substring(eomIndex + EOM.length(), readMessage.length()-1);
-                    }
 
-                    message.append(readMessage);
+                    sendEvent(readMessage);
+
+                    btSocket.close();
+                    init();
+
+//                    messageHandler.obtainMessage(handlerState, bytes, -1, readMessage).sendToTarget();
+//
+//                    int eomIndex = readMessage.indexOf(EOM);
+//                    if (eomIndex != -1){
+//                        message.append(readMessage.substring(0, eomIndex));
+//                        // Send the obtained bytes to the UI Activity via handler
+//                        messageHandler.obtainMessage(handlerState, bytes, -1, message.toString()).sendToTarget();
+//                        message = new StringBuilder();
+//                        readMessage = readMessage.substring(eomIndex + EOM.length(), readMessage.length()-1);
+//                    }
+//
+//                    message.append(readMessage);
                 } catch (IOException e) {
                     e.printStackTrace();
                     break;
                 }
             }
         }
+    }
 
-        //write method
-        public void write(String input) {
-            byte[] msgBuffer = input.getBytes();           //converts entered String into bytes
-            try {
-                mmOutStream.write(msgBuffer);                //write bytes over BT connection via outstream
-            } catch (IOException e) {
-                //if you cannot write, close the application
-                Toast.makeText(getBaseContext(), "Connection Failure", Toast.LENGTH_LONG).show();
-                finish();
-            }
+    private void sendEvent(String eventType) {
+        SecurityEvent event = new SecurityEvent();
+        event.setId(getRandomId());
+        setPossition(event);
+        event.setTime(new Date());
+
+        switch (eventType){
+            case "G":
+                event.setTitle("Gun Shot At Naz");
+                event.setType("Crime");
+                event.setImgUrl("{ url:\u0027img/pistol.png\u0027, scaledSize:[32,40], origin: [0,0], anchor: [16,40] }");
+                break;
+            case "C":
+                event.setTitle("Crash at Naz");
+                event.setType("Crash");
+                return;
+//                break;
+            case "F":
+                event.setTitle("Fire at Naz");
+                event.setType("Fire");
+                event.setImgUrl("{ url:\u0027img/fire.png\u0027, scaledSize:[32,40], origin: [0,0], anchor: [16,40] }");
+                break;
         }
+
+        new HttpRequestTask().execute(event);
+    }
+
+    private void setPossition(SecurityEvent event) {
+        List<String> positions = getPossitions();
+        int randomPosInd = (int) (Math.random() * positions.size());
+        String[] latLon = positions.get(randomPosInd).split(":");
+        event.setLat(Double.valueOf(latLon[0]));
+        event.setLon(Double.valueOf(latLon[1]));
+    }
+
+    private List<String> getPossitions() {
+        List<String> list = new ArrayList<>();
+        list.add("32.696002:35.301039");
+        list.add("32.707126:35.301647");
+        list.add("32.693525:35.303422");
+        list.add("32.6960018:35.3010389");
+        list.add("32.6805991:35.2921629");
+        list.add("32.68475298:35.27765751");
+        list.add("32.69374638:35.29950142");
+        list.add("32.69327687:35.29950142");
+        list.add("32.70129436:35.2958107");
+        list.add("32.7106833:35.3000164");
+        list.add("32.71321092:35.30662537");
+        list.add("32.70685562:35.28538227");
+        list.add("32.70447226:35.31198978");
+        list.add("32.7085032:35.2969909");
+
+        return list;
     }
 }
